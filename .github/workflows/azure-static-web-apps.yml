@@ -1,0 +1,45 @@
+name: Deploy Superior public website to Azure Static Web Apps
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'index.html'
+      - 'styles.css'
+      - 'script.js'
+      - 'assets/**'
+      - '.github/workflows/azure-static-web-apps.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Azure deployment authorization
+        id: auth
+        env:
+          AZURE_TOKEN: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+        run: |
+          if [ -z "$AZURE_TOKEN" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Azure deployment is waiting for the AZURE_STATIC_WEB_APPS_API_TOKEN repository secret."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check out website
+        if: steps.auth.outputs.configured == 'true'
+        uses: actions/checkout@v4
+
+      - name: Deploy static website to Azure
+        if: steps.auth.outputs.configured == 'true'
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          action: upload
+          app_location: /
+          output_location: ''
+          skip_app_build: true
