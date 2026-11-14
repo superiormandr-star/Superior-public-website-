@@ -8,37 +8,37 @@ permissions:
 jobs:
   backup:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Check OneDrive authorization
-        id: auth
         env:
           RCLONE_CONFIG_SECRET: ${{ secrets.ONEDRIVE_RCLONE_CONFIG }}
         run: |
           if [ -z "$RCLONE_CONFIG_SECRET" ]; then
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::OneDrive backup is waiting for ONEDRIVE_RCLONE_CONFIG repository secret."
-          else
-            echo "configured=true" >> "$GITHUB_OUTPUT"
+            echo "::error::OneDrive backup requires ONEDRIVE_RCLONE_CONFIG in this repository."
+            exit 1
           fi
       - name: Package repository snapshot
-        if: steps.auth.outputs.configured == 'true'
         run: |
           mkdir -p "$RUNNER_TEMP/superior-backup"
-          git archive --format=zip --output="$RUNNER_TEMP/superior-backup/superior-website-${GITHUB_SHA}.zip" HEAD
+          git archive --format=zip --output="$RUNNER_TEMP/superior-backup/superior-website-${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.zip" HEAD
+          unzip -t "$RUNNER_TEMP/superior-backup/"*.zip
       - name: Install rclone
-        if: steps.auth.outputs.configured == 'true'
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y rclone
       - name: Upload snapshot to OneDrive
-        if: steps.auth.outputs.configured == 'true'
         env:
           RCLONE_CONFIG_SECRET: ${{ secrets.ONEDRIVE_RCLONE_CONFIG }}
         run: |
           set -eu
           umask 077
-          mkdir -p "$HOME/.config/rclone"
-          printf '%s' "$RCLONE_CONFIG_SECRET" > "$HOME/.config/rclone/rclone.conf"
-          rclone copy "$RUNNER_TEMP/superior-backup" "onedrive:Superior Command Center/Website Backups" --checkers 4 --transfers 2
-          rclone lsf "onedrive:Superior Command Center/Website Backups" | grep -F "superior-website-${GITHUB_SHA}.zip"
+          export RCLONE_CONFIG="$RUNNER_TEMP/onedrive-rclone.conf"
+          trap 'rm -f "$RCLONE_CONFIG"' EXIT
+          printf '%s' "$RCLONE_CONFIG_SECRET" > "$RCLONE_CONFIG"
+          rclone copy "$RUNNER_TEMP/superior-backup" "onedrive:Superior Command Center/Website Backups" --immutable --checkers 4 --transfers 2
+          rclone check "$RUNNER_TEMP/superior-backup" "onedrive:Superior Command Center/Website Backups" --one-way --download
+          rclone lsf "onedrive:Superior Command Center/Website Backups" | grep -Fx -- "superior-website-${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.zip"
